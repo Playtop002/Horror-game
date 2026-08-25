@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The Wilmot House</title>
+<style>
+  html,body{margin:0;padding:0;overflow:hidden;background:#000;font-family:'Courier New',monospace;color:#c9c2b8;}
+  canvas{display:block;}
+  #hud{position:fixed;top:14px;left:14px;z-index:5;pointer-events:none;text-shadow:0 0 6px #000,0 0 2px #000;}
+  #hud .row{margin-bottom:8px;font-size:14px;letter-spacing:1px;}
+  .barOuter{width:160px;height:10px;border:1px solid #6a6154;background:rgba(0,0,0,0.4);margin-top:3px;}
+  .barInner{height:100%;background:#8a7a4a;transition:width .15s linear;}
+  #staminaInner{background:#4a7a5a;}
+  #message{position:fixed;bottom:60px;width:100%;text-align:center;font-size:18px;color:#d8cfa0;opacity:0;transition:opacity .6s ease;z-index:5;text-shadow:0 0 8px #000;pointer-events:none;}
+  #crosshair{position:fixed;top:50%;left:50%;width:4px;height:4px;margin:-2px;background:rgba(255,255,255,.4);border-radius:50%;z-index:5;pointer-events:none;}
+  #vignette{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:4;
+    box-shadow: inset 0 0 160px 40px rgba(0,0,0,0.55);}
+  #dangerVignette{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:4;opacity:0;
+    box-shadow: inset 0 0 260px 40px rgba(140,0,0,0.65); transition:opacity .3s ease;}
+  .overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(5,3,2,0.94);z-index:10;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;box-sizing:border-box;}
+  .overlay h1{font-size:44px;color:#a33;letter-spacing:4px;margin-bottom:10px;text-shadow:0 0 20px #500;}
+  .overlay h1.win{color:#8ab08a;text-shadow:0 0 20px #262;}
+  .overlay p{max-width:520px;line-height:1.6;color:#b3ab9c;font-size:15px;}
+  .btn{margin-top:22px;padding:12px 30px;background:#2a2420;border:1px solid #8a7a4a;color:#d8cfa0;font-family:inherit;
+    font-size:15px;letter-spacing:2px;cursor:pointer;}
+  .btn:hover{background:#4a3f30;}
+  #cutscene{position:fixed;top:0;left:0;width:100%;height:100%;z-index:6;display:none;}
+  #letterboxTop,#letterboxBottom{position:fixed;left:0;width:100%;height:12%;background:#000;z-index:6;}
+  #letterboxTop{top:0;} #letterboxBottom{bottom:0;}
+  #cutsceneCaption{position:fixed;bottom:16%;width:100%;text-align:center;font-size:19px;color:#e8dfc8;
+    opacity:0;transition:opacity .7s ease;z-index:6;text-shadow:0 0 10px #000;letter-spacing:0.5px;}
+  #skipCutsceneBtn{position:fixed;bottom:24px;right:28px;padding:8px 16px;font-size:11px;z-index:7;}
+  #hidden{display:none;}
+</style>
+</head>
+<body>
+
+<div id="startScreen" class="overlay">
+  <h1>THE WILMOT HOUSE</h1>
+  <p>You broke in looking for shelter. You are not alone.<br><br>
+  Find <b>3 keys</b> scattered through the house, then get back out the front door.<br>
+  <b>WASD</b> move &nbsp;•&nbsp; <b>Mouse</b> look &nbsp;•&nbsp; <b>Shift</b> sprint &nbsp;•&nbsp; <b>F</b> flashlight<br><br>
+  Headphones recommended. Your flashlight battery is limited — use it wisely.</p>
+  <button class="btn" id="startBtn">CLICK TO BEGIN</button>
+</div>
+
+<div id="cutscene">
+  <div id="letterboxTop"></div>
+  <div id="letterboxBottom"></div>
+  <div id="cutsceneCaption"></div>
+  <button class="btn" id="skipCutsceneBtn">SKIP ▶</button>
+</div>
+
+<div id="enterPrompt" class="overlay" style="display:none;background:rgba(5,3,2,0.85);">
+  <p style="font-size:16px;">You're standing in the doorway. Something creaks upstairs.</p>
+  <button class="btn" id="enterBtn">STEP INSIDE</button>
+</div>
+
+<div id="pausedScreen" class="overlay" style="display:none;">
+  <h1 style="font-size:30px;color:#c9c2b8;text-shadow:none;">PAUSED</h1>
+  <p>Click to resume. It's still out there.</p>
+  <button class="btn" id="resumeBtn">RESUME</button>
+</div>
+
+<div id="gameOverScreen" class="overlay" style="display:none;">
+  <h1>IT FOUND YOU</h1>
+  <p id="deathMsg">Some houses don't want visitors.</p>
+  <button class="btn" id="retryBtn1">TRY AGAIN</button>
+</div>
+
+<div id="winScreen" class="overlay" style="display:none;">
+  <h1 class="win">YOU ESCAPED</h1>
+  <p>You made it out the front door with all three keys. Behind you, the house goes quiet again.</p>
+  <button class="btn" id="retryBtn2">PLAY AGAIN</button>
+</div>
+
+<div id="hud" style="display:none;">
+  <div class="row">KEYS: <span id="keyCount">0</span> / 3</div>
+  <div class="row">FLASHLIGHT (F)
+    <div class="barOuter"><div class="barInner" id="batteryInner" style="width:100%;"></div></div>
+  </div>
+  <div class="row">STAMINA
+    <div class="barOuter"><div class="barInner" id="staminaInner" style="width:100%;"></div></div>
+  </div>
+</div>
+<div id="message"></div>
+<div id="crosshair"></div>
+<div id="vignette"></div>
+<div id="dangerVignette"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  let scene, camera, renderer, clock;
+  let audioCtx, droneGains=[], noiseBuffer;
+  let keyMeshes=[], monster, monsterEyeMats=[];
+  let flashlight;
+  let wallColliders=[];
+  let running=false, paused=false, ended=false;
+  let inCutscene=false, cutsceneElapsed=0, cutsceneSkip=false;
+  let yaw=0, pitch=0;
+  let pos = {x:0,z:13};
+  let velY=0;
+  const keysDown = {};
+  let keysCollected=0;
+  let battery=100, stamina=100, flashlightOn=false;
+  let monsterState='patrol', monsterPos={x:0,z:-8}, monsterWaypointIdx=0, monsterFacing=0;
+  let heartbeatAccum=0;
+  let doorMessageShown=false;
+
+  const PLAYER_R=0.35, MONSTER_R=0.55, EYE_H=1.65;
+  const WALK_SPEED=4.1, SPRINT_SPEED=7.2, MONSTER_PATROL_SPEED=2.4, MONSTER_CHASE_SPEED=4.5;
+  const CHASE_DIST=9.5, LOSE_DIST=15, CATCH_DIST=1.05;
+
+  const wallSpecs = [
+    {cx:0,cz:-12,sx:30,sz:0.4},
+    {cx:-8,cz:10,sx:14,sz:0.4},
+    {cx:8,cz:10,sx:14,sz:0.4},
+    {cx:-15,cz:-1,sx:0.4,sz:22},
+    {cx:15,cz:-1,sx:0.4,sz:22},
+    {cx:-1,cz:-10,sx:0.3,sz:4},
+    {cx:-1,cz:-0.5,sx:0.3,sz:9},
+    {cx:-1,cz:8.5,sx:0.3,sz:3},
+    {cx:1,cz:-10,sx:0.3,sz:4},
+    {cx:1,cz:-0.5,sx:0.3,sz:9},
+    {cx:1,cz:8.5,sx:0.3,sz:3},
+    {cx:-12,cz:0,sx:6,sz:0.3},
+    {cx:-4,cz:0,sx:6,sz:0.3},
+    {cx:4,cz:0,sx:6,sz:0.3},
+    {cx:12,cz:0,sx:6,sz:0.3},
+  ];
+
+  const keyPositions = [{x:-9,z:2},{x:-9,z:-6},{x:9,z:-6}];
+  const waypoints = [{x:0,z:-10},{x:0,z:6},{x:-9,z:2},{x:9,z:-6},{x:-9,z:-6},{x:9,z:2},{x:0,z:-2}];
+
+  function init(){
+    scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x0a0a10, 0.035);
+    scene.background = new THREE.Color(0x0a0a10);
+    camera = new THREE.PerspectiveCamera(72, window.innerWidth/window.innerHeight, 0.1, 100);
+    renderer = new THREE.WebGLRenderer({antialias:true});
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+    clock = new THREE.Clock();
+
+    scene.add(new THREE.AmbientLight(0x35353f, 0.4));
+    const hemi = new THREE.HemisphereLight(0x2a2a35, 0x0f0d0a, 0.3);
+    scene.add(hemi);
+    const moon = new THREE.DirectionalLight(0x445566, 0.15);
+    moon.position.set(5,10,5);
+    scene.add(moon);
+    const personalLight = new THREE.PointLight(0x554433, 0.18, 5);
+    camera.add(personalLight);
+    const porchLight = new THREE.PointLight(0xffbb77, 1.4, 18, 2);
+    porchLight.position.set(0, 3.2, 10.5);
+    scene.add(porchLight);
+
+    // floor & ceiling
+    const floorMat = new THREE.MeshStandardMaterial({color:0x453c33, roughness:1});
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(50,70), floorMat);
+    floor.rotation.x = -Math.PI/2; floor.receiveShadow = true;
+    scene.add(floor);
+    const ceilMat = new THREE.MeshStandardMaterial({color:0x201c18, roughness:1});
+    const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(50,70), ceilMat);
+    ceiling.rotation.x = Math.PI/2; ceiling.position.y = 4;
+    scene.add(ceiling);
+
+    const wallMat = new THREE.MeshStandardMaterial({color:0x746656, roughness:0.95});
+    wallSpecs.forEach(w=>{
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w.sx,4,w.sz), wallMat);
+      mesh.position.set(w.cx,2,w.cz);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      scene.add(mesh);
+      wallColliders.push({minX:w.cx-w.sx/2,maxX:w.cx+w.sx/2,minZ:w.cz-w.sz/2,maxZ:w.cz+w.sz/2});
+    });
+
+    // a few flickering ambient lights for atmosphere
+    [{x:-9,z:5},{x:9,z:3},{x:0,z:-3}].forEach(p=>{
+      const l = new THREE.PointLight(0x554433, 0.4, 8);
+      l.position.set(p.x,3,p.z);
+      l.userData.baseI = 0.4;
+      scene.add(l);
+      flickerLights.push(l);
+    });
+
+    // keys
+    keyPositions.forEach(p=>{
+      const g = new THREE.Group();
+      const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22,0),
+        new THREE.MeshStandardMaterial({color:0xd8b84a, emissive:0x775500, emissiveIntensity:1.2}));
+      g.add(m);
+      const pl = new THREE.PointLight(0xffcc66, 1.0, 4);
+      g.add(pl);
+      g.position.set(p.x,1,p.z);
+      g.userData.phase = Math.random()*10;
+      scene.add(g);
+      keyMeshes.push(g);
+    });
+
+    // monster
+    monster = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.28,0.55,2.1,10),
+      new THREE.MeshStandardMaterial({color:0x08070a, roughness:1})
+    );
+    body.position.y = 1.05; body.castShadow = true;
+    monster.add(body);
+    const eyeGeo = new THREE.SphereGeometry(0.045,8,8);
+    const eyeMat = new THREE.MeshStandardMaterial({color:0x330000, emissive:0xff0000, emissiveIntensity:0});
+    const eyeL = new THREE.Mesh(eyeGeo, eyeMat.clone());
+    const eyeR = new THREE.Mesh(eyeGeo, eyeMat.clone());
+    eyeL.position.set(-0.11,1.85,-0.24); eyeR.position.set(0.11,1.85,-0.24);
+    monster.add(eyeL); monster.add(eyeR);
+    monsterEyeMats.push(eyeL.material, eyeR.material);
+    monster.position.set(monsterPos.x,0,monsterPos.z);
+    scene.add(monster);
+
+    // flashlight
+    flashlight = new THREE.SpotLight(0xfff4d8, 0, 26, Math.PI/6, 0.5, 1);
+    flashlight.castShadow = true;
+    flashlight.shadow.mapSize.set(1024,1024);
+    camera.add(flashlight);
+    flashlight.target.position.set(0,0,-1);
+    camera.add(flashlight.target);
+    scene.add(camera);
+
+    resetPlayer();
+    window.addEventListener('resize', onResize);
+    document.addEventListener('keydown', e=>{keysDown[e.key.toLowerCase()]=true; if(e.key.toLowerCase()==='f') toggleFlashlight();});
+    document.addEventListener('keyup', e=>{keysDown[e.key.toLowerCase()]=false;});
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('pointerlockchange', onPLChange);
+  }
+  const flickerLights=[];
+
+  function onResize(){
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  function onMouseMove(e){
+    if(document.pointerLockElement !== renderer.domElement) return;
+    yaw -= e.movementX * 0.0022;
+    pitch -= e.movementY * 0.0022;
+    pitch = Math.max(-1.3, Math.min(1.3, pitch));
+  }
+
+  function onPLChange(){
+    if(document.pointerLockElement !== renderer.domElement && running && !ended){
+      paused = true;
+      document.getElementById('pausedScreen').style.display='flex';
+    }
+  }
+
+  function resetPlayer(){
+    pos = {x:0,z:13};
+    yaw = Math.PI; pitch = 0;
+    keysCollected = 0;
+    battery = 100; stamina = 100; flashlightOn = true;
+    monsterState='patrol'; monsterWaypointIdx=0;
+    monsterPos = {x:waypoints[0].x, z:waypoints[0].z};
+    doorMessageShown = false;
+    keyMeshes.forEach((g,i)=>{ g.visible = true; });
+    document.getElementById('keyCount').textContent = '0';
+  }
+
+  // ---- audio ----
+  function initAudio(){
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const len = audioCtx.sampleRate*1.2;
+    noiseBuffer = audioCtx.createBuffer(1,len,audioCtx.sampleRate);
+    const d = noiseBuffer.getChannelData(0);
+    for(let i=0;i<len;i++) d[i] = (Math.random()*2-1);
+
+    [50, 74].forEach((f,i)=>{
+      const osc = audioCtx.createOscillator();
+      osc.type = i===0?'sine':'triangle';
+      osc.frequency.value = f;
+      const gain = audioCtx.createGain();
+      gain.gain.value = i===0?0.025:0.014;
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start();
+      droneGains.push(gain);
+    });
+    const lfo = audioCtx.createOscillator();
+    lfo.frequency.value = 0.06;
+    const lfoGain = audioCtx.createGain();
+    lfoGain.gain.value = 0.012;
+    lfo.connect(lfoGain);
+    lfoGain.connect(droneGains[0].gain);
+    lfo.start();
+  }
+
+  function playThump(intensity){
+    if(!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    osc.type='sine'; osc.frequency.value = 58;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.35*intensity, audioCtx.currentTime+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+0.28);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime+0.3);
+  }
+
+  function playPickup(){
+    if(!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    osc.type='sine'; osc.frequency.setValueAtTime(660, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(990, audioCtx.currentTime+0.15);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.12, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+0.35);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime+0.4);
+  }
+
+  function playScare(){
+    if(!audioCtx) return;
+    const src = audioCtx.createBufferSource();
+    src.buffer = noiseBuffer;
+    const filt = audioCtx.createBiquadFilter();
+    filt.type='bandpass'; filt.frequency.value=900; filt.Q.value=0.7;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.55, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+1.4);
+    src.connect(filt); filt.connect(g); g.connect(audioCtx.destination);
+    src.start();
+    [220,233,247].forEach(f=>{
+      const o = audioCtx.createOscillator();
+      o.type='sawtooth'; o.frequency.value=f;
+      const og = audioCtx.createGain();
+      og.gain.setValueAtTime(0.09, audioCtx.currentTime);
+      og.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+1.2);
+      o.connect(og); og.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime+1.3);
+    });
+  }
+
+  function toggleFlashlight(){
+    if(!running||paused||ended) return;
+    if(!flashlightOn && battery<=0) return;
+    flashlightOn = !flashlightOn;
+  }
+
+  function showMessage(text, dur){
+    const el = document.getElementById('message');
+    el.textContent = text;
+    el.style.opacity = 1;
+    clearTimeout(el._t);
+    el._t = setTimeout(()=>{ el.style.opacity=0; }, dur||2200);
+  }
+
+  function resolveCollisions(x,z,radius){
+    for(const w of wallColliders){
+      const cx = Math.max(w.minX, Math.min(x, w.maxX));
+      const cz = Math.max(w.minZ, Math.min(z, w.maxZ));
+      const dx = x-cx, dz = z-cz;
+      const d2 = dx*dx+dz*dz;
+      if(d2 < radius*radius){
+        const d = Math.sqrt(d2) || 0.0001;
+        const overlap = radius-d;
+        x += (dx/d)*overlap;
+        z += (dz/d)*overlap;
+      }
+    }
+    return {x,z};
+  }
+
+  function dist(ax,az,bx,bz){ return Math.hypot(ax-bx, az-bz); }
+
+  function updatePlayer(dt){
+    let fwd=0, strafe=0;
+    if(keysDown['w']) fwd+=1;
+    if(keysDown['s']) fwd-=1;
+    if(keysDown['a']) strafe-=1;
+    if(keysDown['d']) strafe+=1;
+    const moving = fwd!==0||strafe!==0;
+    const sprinting = keysDown['shift'] && stamina>0.5 && moving;
+
+    if(sprinting){ stamina = Math.max(0, stamina - 26*dt); }
+    else { stamina = Math.min(100, stamina + 12*dt); }
+
+    const speed = sprinting? SPRINT_SPEED : WALK_SPEED;
+    if(moving){
+      const len = Math.hypot(fwd,strafe)||1;
+      fwd/=len; strafe/=len;
+      const fx = Math.sin(yaw), fz = Math.cos(yaw);
+      const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+      let nx = pos.x + (-fx*fwd + rx*strafe)*speed*dt;
+      let nz = pos.z + (-fz*fwd + rz*strafe)*speed*dt;
+      const resolved = resolveCollisions(nx,nz,PLAYER_R);
+      pos.x = resolved.x; pos.z = resolved.z;
+    }
+
+    if(flashlightOn){
+      battery = Math.max(0, battery - 1.5*dt);
+      if(battery<=0) flashlightOn=false;
+    } else {
+      battery = Math.min(100, battery + 0.45*dt);
+    }
+    flashlight.intensity = flashlightOn ? 7 : 0;
+
+    camera.position.set(pos.x, EYE_H, pos.z);
+    camera.rotation.order='YXZ';
+    camera.rotation.y = yaw;
+    camera.rotation.x = pitch;
+  }
+
+  function updateMonster(dt){
+    const d = dist(pos.x,pos.z,monsterPos.x,monsterPos.z);
+    if(monsterState==='patrol' && d<CHASE_DIST){
+      monsterState='chase';
+      playScare();
+      showMessage('IT SEES YOU', 1600);
+    } else if(monsterState==='chase' && d>LOSE_DIST){
+      monsterState='patrol';
+    }
+
+    let tx,tz,speed;
+    if(monsterState==='chase'){
+      tx=pos.x; tz=pos.z; speed=MONSTER_CHASE_SPEED;
+    } else {
+      const wp = waypoints[monsterWaypointIdx];
+      tx=wp.x; tz=wp.z; speed=MONSTER_PATROL_SPEED;
+      if(dist(monsterPos.x,monsterPos.z,wp.x,wp.z) < 0.6){
+        monsterWaypointIdx = (monsterWaypointIdx+1)%waypoints.length;
+      }
+    }
+    const dx = tx-monsterPos.x, dz = tz-monsterPos.z;
+    const dl = Math.hypot(dx,dz)||1;
+    let nx = monsterPos.x + (dx/dl)*speed*dt;
+    let nz = monsterPos.z + (dz/dl)*speed*dt;
+    const resolved = resolveCollisions(nx,nz,MONSTER_R);
+    monsterPos.x = resolved.x; monsterPos.z = resolved.z;
+
+    const targetFacing = Math.atan2(dx,dz);
+    let diff = targetFacing - monsterFacing;
+    while(diff>Math.PI) diff-=Math.PI*2;
+    while(diff<-Math.PI) diff+=Math.PI*2;
+    monsterFacing += diff*Math.min(1, dt*6);
+    monster.position.set(monsterPos.x,0,monsterPos.z);
+    monster.rotation.y = monsterFacing;
+
+    const glow = monsterState==='chase' ? 3.5 : 1.2;
+    monsterEyeMats.forEach(m=>m.emissiveIntensity = glow + Math.sin(performance.now()*0.01)*0.3);
+
+    // danger vignette + heartbeat
+    const dv = document.getElementById('dangerVignette');
+    if(d<16){
+      heartbeatAccum += dt;
+      const interval = Math.max(0.32, 0.32 + (d/16)*1.1);
+      if(heartbeatAccum>=interval){
+        heartbeatAccum=0;
+        playThump(monsterState==='chase'?1.0:0.55);
+      }
+      dv.style.opacity = Math.max(0, Math.min(0.75, (16-d)/16 * (monsterState==='chase'?1:0.5)));
+    } else {
+      dv.style.opacity = 0;
+    }
+
+    if(d < CATCH_DIST){
+      loseGame();
+    }
+  }
+
+  function updateKeys(dt){
+    keyMeshes.forEach((g,i)=>{
+      if(!g.visible) return;
+      g.userData.phase += dt;
+      g.position.y = 1 + Math.sin(g.userData.phase*2)*0.08;
+      g.rotation.y += dt*1.2;
+      if(dist(pos.x,pos.z,keyPositions[i].x,keyPositions[i].z) < 1.1){
+        g.visible = false;
+        keysCollected++;
+        document.getElementById('keyCount').textContent = keysCollected;
+        playPickup();
+        showMessage(keysCollected<3 ? 'Found a key ('+keysCollected+'/3)' : 'All keys found — get to the front door!', 2600);
+      }
+    });
+  }
+
+  function checkDoor(){
+    if(pos.z > 9.3 && Math.abs(pos.x) < 1.4){
+      if(keysCollected>=3){
+        winGame();
+      } else if(!doorMessageShown){
+        doorMessageShown = true;
+        showMessage('The door is locked. You need all 3 keys.', 2600);
+      }
+    } else {
+      doorMessageShown = false;
+    }
+  }
+
+  function updateFlicker(){
+    flickerLights.forEach(l=>{
+      l.intensity = l.userData.baseI * (0.75 + Math.random()*0.5) * (Math.random()<0.02?0.15:1);
+    });
+  }
+
+  function loseGame(){
+    if(ended) return;
+    ended = true; running=false;
+    playScare();
+    document.exitPointerLock();
+    document.getElementById('hud').style.display='none';
+    document.getElementById('gameOverScreen').style.display='flex';
+  }
+  function winGame(){
+    if(ended) return;
+    ended = true; running=false;
+    document.exitPointerLock();
+    document.getElementById('hud').style.display='none';
+    document.getElementById('winScreen').style.display='flex';
+  }
+
+  function updateHUD(){
+    document.getElementById('batteryInner').style.width = battery+'%';
+    document.getElementById('staminaInner').style.width = stamina+'%';
+  }
+
+  const cutsceneCaptions = [
+    {t:0.3, dur:2.3, text:"The storm chased you off the road."},
+    {t:2.9, dur:2.3, text:"This house was the only shelter for miles."},
+    {t:5.4, dur:2.0, text:"The front door was already open."},
+  ];
+  const CUTSCENE_DURATION = 7.4;
+  let cutsceneShownIdx = -1;
+
+  function easeInOut(t){ return t<0.5 ? 2*t*t : -1+(4-2*t)*t; }
+
+  function beginCutscene(){
+    if(!audioCtx) initAudio();
+    resetPlayer();
+    document.getElementById('startScreen').style.display='none';
+    document.getElementById('cutscene').style.display='block';
+    document.getElementById('cutsceneCaption').style.opacity = 0;
+    cutsceneShownIdx = -1;
+    cutsceneElapsed = 0;
+    cutsceneSkip = false;
+    inCutscene = true; running=false; paused=false; ended=false;
+    renderer.domElement.requestPointerLock();
+  }
+
+  function updateCutscene(dt){
+    cutsceneElapsed += dt;
+    const t = Math.min(1, cutsceneElapsed/CUTSCENE_DURATION);
+    const e = easeInOut(t);
+    const startZ = 26, endZ = 13;
+    const cz = startZ + (endZ-startZ)*e;
+    camera.position.set(0, EYE_H + Math.sin(cutsceneElapsed*4.2)*0.025, cz);
+    camera.rotation.order='YXZ';
+    camera.rotation.y = Math.PI + Math.sin(cutsceneElapsed*1.8)*0.015;
+    camera.rotation.x = 0;
+
+    // flashlight clicks on just before stepping through the door
+    flashlight.intensity = t > 0.72 ? 7 * Math.min(1, (t-0.72)/0.12) : 0;
+
+    const capEl = document.getElementById('cutsceneCaption');
+    let activeIdx = -1;
+    cutsceneCaptions.forEach((c,i)=>{
+      if(cutsceneElapsed>=c.t && cutsceneElapsed<c.t+c.dur) activeIdx=i;
+    });
+    if(activeIdx !== cutsceneShownIdx){
+      cutsceneShownIdx = activeIdx;
+      if(activeIdx>=0){
+        capEl.textContent = cutsceneCaptions[activeIdx].text;
+        capEl.style.opacity = 1;
+      } else {
+        capEl.style.opacity = 0;
+      }
+    }
+
+    if(t>=1 || cutsceneSkip) endCutscene();
+  }
+
+  function endCutscene(){
+    inCutscene = false;
+    document.getElementById('cutscene').style.display='none';
+    pos.x = 0; pos.z = 13; yaw = Math.PI; pitch = 0;
+    flashlightOn = true;
+    battery = 100;
+    running = true; paused = false; ended = false;
+    document.getElementById('hud').style.display='block';
+    if(document.pointerLockElement !== renderer.domElement){
+      renderer.domElement.requestPointerLock();
+    }
+  }
+  function animate(){
+    requestAnimationFrame(animate);
+    const dt = Math.min(0.05, clock.getDelta());
+    if(inCutscene){ updateCutscene(dt); renderer.render(scene,camera); return; }
+    if(!running || paused || ended){ renderer.render(scene,camera); return; }
+    updatePlayer(dt);
+    updateMonster(dt);
+    updateKeys(dt);
+    updateFlicker();
+    checkDoor();
+    updateHUD();
+    renderer.render(scene,camera);
+  }
+
+  function startGame(){
+    if(!audioCtx) initAudio();
+    resetPlayer();
+    inCutscene=false; ended=false; paused=false; running=true;
+    document.getElementById('startScreen').style.display='none';
+    document.getElementById('cutscene').style.display='none';
+    document.getElementById('pausedScreen').style.display='none';
+    document.getElementById('gameOverScreen').style.display='none';
+    document.getElementById('winScreen').style.display='none';
+    document.getElementById('hud').style.display='block';
+    renderer.domElement.requestPointerLock();
+  }
+
+  document.getElementById('startBtn').addEventListener('click', beginCutscene);
+  document.getElementById('skipCutsceneBtn').addEventListener('click', ()=>{ cutsceneSkip=true; });
+  document.getElementById('resumeBtn').addEventListener('click', ()=>{
+    paused=false;
+    renderer.domElement.requestPointerLock();
+    document.getElementById('pausedScreen').style.display='none';
+  });
+  document.getElementById('retryBtn1').addEventListener('click', startGame);
+  document.getElementById('retryBtn2').addEventListener('click', startGame);
+
+  init();
+  animate();
+})();
+</script>
+</body>
+</html>
